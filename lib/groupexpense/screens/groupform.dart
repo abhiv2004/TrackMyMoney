@@ -1,256 +1,307 @@
-// lib/screens/add_edit_group_form.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../database/group_expense_db.dart';
 
-import '../model/participant_model.dart';
-import '../service/group_service.dart';
+class ParticipantModel {
+  int? participantId;
+  String name;
+  String mobile;
+  File? image;
 
-
-class AddEditGroupForm extends StatefulWidget {
-  final Map<String, dynamic>? groupDetails; // optional: {"group":..., "participants":[...]}
-  const AddEditGroupForm({Key? key, this.groupDetails}) : super(key: key);
-
-  @override
-  State<AddEditGroupForm> createState() => _AddEditGroupFormState();
+  ParticipantModel({
+    this.participantId,
+    required this.name,
+    required this.mobile,
+    this.image,
+  });
 }
 
-class _AddEditGroupFormState extends State<AddEditGroupForm> {
-  final _groupService = GroupService();
+class GroupFormScreen extends StatefulWidget {
+  final int? groupId;
 
+  const GroupFormScreen({Key? key, this.groupId}) : super(key: key);
+
+  @override
+  State<GroupFormScreen> createState() => _GroupFormScreenState();
+}
+
+class _GroupFormScreenState extends State<GroupFormScreen> {
   final TextEditingController _groupNameController = TextEditingController();
-  List<ParticipantModel> _members = [];
+  List<ParticipantModel> _participants = [];
   final ImagePicker _picker = ImagePicker();
-
   bool _isLoading = false;
+  String? _selectedDate;
 
   @override
   void initState() {
     super.initState();
-    if (widget.groupDetails != null) {
-      _groupNameController.text = widget.groupDetails!['group']['group_name'] as String;
-      final parts = widget.groupDetails!['participants'] as List<dynamic>;
-      _members = parts.map((p) => ParticipantModel.fromMap(p)).toList();
+    if (widget.groupId != null) {
+      _loadGroupData();
     }
   }
 
-  Future<void> _pickImageForMember(int index) async {
-    final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
-    if (file != null) {
-      setState(() => _members[index].imagePath = file.path);
+  // ====================================
+  // LOAD EXISTING GROUP
+  // ====================================
+  Future<void> _loadGroupData() async {
+    setState(() => _isLoading = true);
+
+    final data = await GroupExpenseDB.instance
+        .getGroupWithParticipants(widget.groupId!);
+
+    final group = data['group'];
+    final participants = data['participants'];
+
+    _groupNameController.text = group['group_name'];
+    _selectedDate = group['date'];
+
+    _participants = participants.map<ParticipantModel>((p) {
+      return ParticipantModel(
+        participantId: p['participant_id'],
+        name: p['participant_name'],
+        mobile: p['mobile'] ?? '',
+      );
+    }).toList();
+
+    setState(() => _isLoading = false);
+  }
+
+  // ====================================
+  // PICK IMAGE
+  // ====================================
+  Future<void> _pickImage(int index) async {
+    PermissionStatus status = await Permission.photos.request();
+
+    if (status.isGranted) {
+      final XFile? picked =
+          await _picker.pickImage(source: ImageSource.gallery);
+
+      if (picked != null) {
+        setState(() {
+          _participants[index].image = File(picked.path);
+        });
+      }
     }
   }
 
-  void _addMemberDialog() {
-    final nameCtrl = TextEditingController();
-    final mobileCtrl = TextEditingController();
-    final key = GlobalKey<FormState>();
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Add Member'),
-        content: Form(
-          key: key,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameCtrl,
-                decoration: _inputDecoration("Name", Icons.person),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              TextFormField(
-                controller: mobileCtrl,
-                decoration: _inputDecoration("Mobile", Icons.phone),
-                keyboardType: TextInputType.phone,
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              if (!key.currentState!.validate()) return;
-              setState(() {
-                _members.add(ParticipantModel(
-                  groupId: 0,
-                  participantName: nameCtrl.text.trim(),
-                  mobile: mobileCtrl.text.trim(),
-                ));
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('Add'),
-          )
-        ],
-      ),
-    );
-  }
-
-  void _editMemberDialog(int index) {
-    final nameCtrl = TextEditingController(text: _members[index].participantName);
-    final mobileCtrl = TextEditingController(text: _members[index].mobile);
-    final key = GlobalKey<FormState>();
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Edit Member'),
-        content: Form(
-          key: key,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(controller: nameCtrl, decoration: _inputDecoration("Name", Icons.person), validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
-              TextFormField(controller: mobileCtrl, decoration: _inputDecoration("Mobile", Icons.phone), keyboardType: TextInputType.phone, validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              if (!key.currentState!.validate()) return;
-              setState(() {
-                _members[index].participantName = nameCtrl.text.trim();
-                _members[index].mobile = mobileCtrl.text.trim();
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          )
-        ],
-      ),
-    );
-  }
-
+  // ====================================
+  // SAVE GROUP
+  // ====================================
   Future<void> _saveGroup() async {
-    final name = _groupNameController.text.trim();
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group name required')));
+    if (_groupNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Group name required")));
       return;
     }
-    if (_members.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add at least one member')));
+
+    if (_participants.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Add at least one participant")));
       return;
     }
 
     setState(() => _isLoading = true);
 
-    if (widget.groupDetails == null) {
-      // create
-      final createdId = await _groupService.createGroupWithParticipants(
-        groupName: name,
-        participants: _members.map((m) => ParticipantModel(groupId: 0, participantName: m.participantName, mobile: m.mobile, imagePath: m.imagePath)).toList(),
+    if (widget.groupId == null) {
+      // ADD NEW
+      await GroupExpenseDB.instance.addGroupWithParticipants(
+        groupName: _groupNameController.text,
+        dateIso: DateTime.now().toIso8601String(),
+        participants: _participants.map((p) {
+          return {
+            'name': p.name,
+            'mobile': p.mobile,
+            'image': p.image?.path
+          };
+        }).toList(),
       );
-      // you can use createdId if needed
     } else {
-      // update
-      final groupId = widget.groupDetails!['group']['group_id'] as int;
-      await _groupService.updateGroupWithParticipants(
-        groupId: groupId,
-        newGroupName: name,
-        participants: _members.map((m) => ParticipantModel(groupId: groupId, participantName: m.participantName, mobile: m.mobile, imagePath: m.imagePath)).toList(),
+      // UPDATE
+      await GroupExpenseDB.instance.updateGroupWithParticipants(
+        groupId: widget.groupId!,
+        groupName: _groupNameController.text,
+        participants: _participants.map((p) {
+          return {
+            'participant_id': p.participantId,
+            'name': p.name,
+            'mobile': p.mobile,
+            'image': p.image?.path
+          };
+        }).toList(),
       );
     }
 
     setState(() => _isLoading = false);
-    Navigator.pop(context, true); // return success
+    Navigator.pop(context);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.groupDetails == null ? 'Add Group' : 'Edit Group'),
-        backgroundColor: Colors.teal,
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _saveGroup,
-        child: const Icon(Icons.save),
-        backgroundColor: Colors.teal,
-      ),
-      body: Stack(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _groupNameController,
-                  decoration: _inputDecoration("Name", Icons.person),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Members', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    IconButton(onPressed: _addMemberDialog, icon: const Icon(Icons.add_circle, color: Colors.teal)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _members.length,
-                    itemBuilder: (_, i) => Card(
-                      child: ListTile(
-                        leading: GestureDetector(
-                          onTap: () => _pickImageForMember(i),
-                          child: CircleAvatar(
-                            backgroundImage: _members[i].imagePath != null ? FileImage(File(_members[i].imagePath!)) : null,
-                            child: _members[i].imagePath == null ? const Icon(Icons.person) : null,
-                          ),
-                        ),
-                        title: Text(_members[i].participantName),
-                        subtitle: Text(_members[i].mobile),
-                        onTap: () => _editMemberDialog(i),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => setState(() => _members.removeAt(i)),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+  // ====================================
+  // ADD PARTICIPANT DIALOG
+  // ====================================
+  void _addParticipant() {
+    final nameController = TextEditingController();
+    final mobileController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Add Participant"),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: _inputDecoration("Name", Icons.person),
+                validator: (v) =>
+                    v == null || v.isEmpty ? "Enter name" : null,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: mobileController,
+                decoration: _inputDecoration("Mobile", Icons.phone),
+                keyboardType: TextInputType.phone,
+                validator: (v) =>
+                    v == null || v.length != 10 ? "Enter valid mobile" : null,
+              ),
+            ],
           ),
-          if (_isLoading)
-            Container(color: Colors.black45, child: const Center(child: CircularProgressIndicator())),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel")),
+          ElevatedButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  setState(() {
+                    _participants.add(ParticipantModel(
+                        name: nameController.text,
+                        mobile: mobileController.text));
+                  });
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text("Add"))
         ],
       ),
     );
   }
 
-  InputDecoration _inputDecoration(String label, IconData icon) {
-    return InputDecoration(
-      filled: true,
-      fillColor: Colors.white.withOpacity(0.7),
-      hintText: label,
-      hintStyle: const TextStyle(
-        color: Colors.grey, // Customize label text color
-        fontSize: 16, // Customize label text size
-        fontWeight: FontWeight.w500, // Bold label text
-      ),
-      labelText: label,
-      labelStyle: const TextStyle(
-        color: Colors.teal, // Customize label text color
-        fontSize: 16, // Customize label text size
-        fontWeight: FontWeight.w500, // Bold label text
-      ),
-      prefixIcon: Icon(icon, color: Colors.teal),
-      border: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.teal),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.teal), // Focused border color
-        borderRadius: BorderRadius.circular(8),
-      ),
+  // ====================================
+  // BUILD UI
+  // ====================================
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            title: Text(widget.groupId == null
+                ? "Create Group"
+                : "Update Group"),
+            backgroundColor: Colors.teal,
+          ),
+          body: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _groupNameController,
+                  decoration:
+                      _inputDecoration("Group Name", Icons.group),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "Participants",
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                    IconButton(
+                        onPressed: _addParticipant,
+                        icon: const Icon(Icons.add_circle,
+                            color: Colors.teal))
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _participants.length,
+                    itemBuilder: (_, index) {
+                      return Card(
+                        child: ListTile(
+                          leading: GestureDetector(
+                            onTap: () => _pickImage(index),
+                            child: CircleAvatar(
+                              backgroundImage:
+                                  _participants[index].image != null
+                                      ? FileImage(
+                                          _participants[index].image!)
+                                      : null,
+                              child:
+                                  _participants[index].image == null
+                                      ? const Icon(Icons.add_a_photo)
+                                      : null,
+                            ),
+                          ),
+                          title: Text(_participants[index].name),
+                          subtitle:
+                              Text(_participants[index].mobile),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete,
+                                color: Colors.red),
+                            onPressed: () {
+                              setState(() {
+                                _participants.removeAt(index);
+                              });
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _saveGroup,
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 80, vertical: 15)),
+                  child: const Text("Save Group",
+                      style: TextStyle(color: Colors.white)),
+                )
+              ],
+            ),
+          ),
+        ),
+        if (_isLoading)
+          Container(
+            color: Colors.black54,
+            child: const Center(
+                child: CircularProgressIndicator(
+                    color: Colors.white)),
+          )
+      ],
     );
   }
 
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: Colors.teal),
+      border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8)),
+      focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide:
+              const BorderSide(color: Colors.teal)),
+    );
+  }
 }

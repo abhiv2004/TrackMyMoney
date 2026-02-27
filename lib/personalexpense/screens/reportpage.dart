@@ -25,14 +25,14 @@ class _HierarchicalReportPageState extends State<HierarchicalReportPage> {
     Map<int, Map<String, double>> temp = {};
 
     for (var e in expenses) {
-      final date = DateTime.parse(e['date']);
+      final date = DateTime.parse(e.date);
       final year = date.year;
       final month =
           "${date.month.toString().padLeft(2, '0')}";
 
       temp.putIfAbsent(year, () => {});
       temp[year]![month] =
-          (temp[year]![month] ?? 0) + e['amount'];
+          (temp[year]![month] ?? 0) + e.amount;
     }
 
     setState(() {

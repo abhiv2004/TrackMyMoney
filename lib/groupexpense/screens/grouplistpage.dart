@@ -1,21 +1,18 @@
-// lib/screens/groups_page.dart
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../database/group_expense_db.dart';
+import 'group_form_screen.dart';
 
-import '../service/group_service.dart';
-import 'groupform.dart';
-
-
-class GroupsPage extends StatefulWidget {
-  const GroupsPage({Key? key}) : super(key: key);
+class GroupHomeScreen extends StatefulWidget {
+  const GroupHomeScreen({Key? key}) : super(key: key);
 
   @override
-  State<GroupsPage> createState() => _GroupsPageState();
+  State<GroupHomeScreen> createState() => _GroupHomeScreenState();
 }
 
-class _GroupsPageState extends State<GroupsPage> {
-  final _service = GroupService();
-  List<Map<String, dynamic>> groups = [];
-  bool loading = false;
+class _GroupHomeScreenState extends State<GroupHomeScreen> {
+  List<Map<String, dynamic>> _groups = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -23,93 +20,152 @@ class _GroupsPageState extends State<GroupsPage> {
     _loadGroups();
   }
 
+  // ===============================
+  // LOAD ALL GROUPS
+  // ===============================
   Future<void> _loadGroups() async {
-    setState(() => loading = true);
-    groups = await _service.getAllGroups();
-    setState(() => loading = false);
+    final data = await GroupExpenseDB.instance.getAllGroups();
+
+    setState(() {
+      _groups = data;
+      _isLoading = false;
+    });
   }
 
-  Future<void> _openAdd() async {
-    final res = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AddEditGroupForm()),
-    );
-    if (res == true) _loadGroups();
-  }
-
-  Future<void> _openEdit(int groupId) async {
-    final details = await _service.getGroupWithParticipants(groupId);
-    final res = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => AddEditGroupForm(groupDetails: details)),
-    );
-    if (res == true) _loadGroups();
-  }
-
-  Future<void> _confirmDelete(int groupId, String name) async {
-    final ok = await showDialog<bool>(
+  // ===============================
+  // DELETE GROUP CONFIRMATION
+  // ===============================
+  void _confirmDelete(int groupId) {
+    showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete Group'),
-        content: Text("Delete '$name'? This removes participants too."),
+        title: const Text("Delete Group"),
+        content: const Text("Are you sure you want to delete this group?"),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            child: const Text("Cancel"),
+            onPressed: () => Navigator.pop(context),
+          ),
+          TextButton(
+            child: const Text("Delete"),
+            onPressed: () async {
+              Navigator.pop(context);
+              await GroupExpenseDB.instance
+                  .deleteGroupWithEverything(groupId);
+              _loadGroups();
+            },
+          ),
         ],
       ),
     );
-    if (ok == true) {
-      await _service.deleteGroup(groupId);
-      _loadGroups();
-    }
+  }
+
+  // ===============================
+  // NAVIGATE TO FORM
+  // ===============================
+  Future<void> _openForm({int? groupId}) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GroupFormScreen(groupId: groupId),
+      ),
+    );
+
+    _loadGroups(); // Refresh after returning
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Groups Expense'),
-        centerTitle: true,
+        title: const Text(
+          "Group Expense",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.teal,
       ),
-      body: loading
+      body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : groups.isEmpty
-          ? const Center(child: Text('No groups yet'))
-          : ListView.builder(
-        itemCount: groups.length,
-        itemBuilder: (_, i) {
-          final g = groups[i];
-          return Dismissible(
-            key: Key(g['group_id'].toString()),
-            background: Container(color: Colors.blue, alignment: Alignment.centerLeft, padding: const EdgeInsets.only(left: 16), child: const Icon(Icons.edit, color: Colors.white)),
-            secondaryBackground: Container(color: Colors.red, alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 16), child: const Icon(Icons.delete, color: Colors.white)),
-            confirmDismiss: (dir) async {
-              if (dir == DismissDirection.startToEnd) {
-                _openEdit(g['group_id'] as int);
-                return false;
-              } else {
-                await _confirmDelete(g['group_id'] as int, g['group_name'] as String);
-                return false;
-              }
-            },
-            child: Card(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: ListTile(
-                leading: const CircleAvatar(child: Icon(Icons.group)),
-                title: Text(g['group_name'] as String),
-                subtitle: Text('Created: ${DateTime.parse(g['date'] as String).toLocal().toString().split(' ')[0]}'),
-                onTap: () => null,
-              ),
-            ),
-          );
-        },
-      ),
+          : _groups.isEmpty
+              ? const Center(
+                  child: Text(
+                    "No Groups Found.\nClick + to add new group.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: _groups.length,
+                  itemBuilder: (context, index) {
+                    final group = _groups[index];
+
+                    return Dismissible(
+                      key: ValueKey(group['group_id']),
+                      background: _buildRightSwipeBackground(),
+                      secondaryBackground:
+                          _buildLeftSwipeBackground(),
+                      confirmDismiss: (direction) async {
+                        if (direction ==
+                            DismissDirection.endToStart) {
+                          // LEFT SWIPE → DELETE
+                          _confirmDelete(group['group_id']);
+                          return false;
+                        } else {
+                          // RIGHT SWIPE → EDIT
+                          _openForm(groupId: group['group_id']);
+                          return false;
+                        }
+                      },
+                      child: Card(
+                        margin: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        child: ListTile(
+                          title: Text(
+                            group['group_name'],
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                            group['date'] != null
+                                ? DateFormat('dd-MM-yyyy')
+                                    .format(DateTime.parse(
+                                        group['date']))
+                                : "",
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _openAdd,
-        child: const Icon(Icons.add),
         backgroundColor: Colors.teal,
+        child: const Icon(Icons.add),
+        onPressed: () => _openForm(),
       ),
+    );
+  }
+
+  // ===============================
+  // RIGHT SWIPE (EDIT)
+  // ===============================
+  Widget _buildRightSwipeBackground() {
+    return Container(
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.only(left: 20),
+      color: Colors.blue,
+      child: const Icon(Icons.edit, color: Colors.white),
+    );
+  }
+
+  // ===============================
+  // LEFT SWIPE (DELETE)
+  // ===============================
+  Widget _buildLeftSwipeBackground() {
+    return Container(
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.only(right: 20),
+      color: Colors.red,
+      child: const Icon(Icons.delete, color: Colors.white),
     );
   }
 }

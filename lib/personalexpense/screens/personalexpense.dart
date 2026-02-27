@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../database/personaldatabase.dart';
+import '../models/expense_model.dart';
 import 'dashboard.dart';
 import 'expense_form_dialog.dart';
 import 'expensetile.dart';
@@ -13,7 +14,7 @@ class PersonalExpensePage extends StatefulWidget {
 }
 
 class _PersonalExpensePageState extends State<PersonalExpensePage> {
-  List<Map<String, dynamic>> expenses = [];
+  List<Expense> expenses = [];
   double totalExpense = 0;
   double monthExpense = 0;
 
@@ -27,11 +28,11 @@ class _PersonalExpensePageState extends State<PersonalExpensePage> {
     final allExpenses = await MyPersonalExpenseDB.instance.getExpenses();
     final now = DateTime.now();
 
-    List<Map<String, dynamic>> currentYear = [];
-    List<Map<String, dynamic>> currentMonth = [];
+    List<Expense> currentYear = [];
+    List<Expense> currentMonth = [];
 
     for (var e in allExpenses) {
-      final date = DateTime.parse(e['date']);
+      final date = DateTime.parse(e.date);
       if (date.year == now.year) {
         currentYear.add(e);
         if (date.month == now.month) currentMonth.add(e);
@@ -41,9 +42,9 @@ class _PersonalExpensePageState extends State<PersonalExpensePage> {
     setState(() {
       expenses = currentMonth;
       totalExpense =
-          currentYear.fold(0, (sum, e) => sum + e['amount']);
+          currentYear.fold(0, (sum, e) => sum + e.amount);
       monthExpense =
-          currentMonth.fold(0, (sum, e) => sum + e['amount']);
+          currentMonth.fold(0, (sum, e) => sum + e.amount);
     });
   }
 
@@ -182,7 +183,7 @@ class _PersonalExpensePageState extends State<PersonalExpensePage> {
                       final confirm = await _confirmDelete(context);
 
                       if (confirm) {
-                        await MyPersonalExpenseDB.instance.deleteExpense(e['id']);
+                        await MyPersonalExpenseDB.instance.deleteExpense(e.id!);
                         await loadExpenses();
                         return true;   // allow dismiss
                       }

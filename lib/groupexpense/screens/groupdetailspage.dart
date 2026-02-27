@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'alert.dart';
-import 'balancepage.dart';
-import 'expensepage.dart';
+import '../database/group_expense_db.dart';
+import '../utils/colors.dart';
+import 'group_form_screen.dart';
+import 'group_expense_page.dart';
+import 'group_balance_page.dart';
 
 class GroupDetailsPage extends StatefulWidget {
-  final int group_id;
-  final String? group_name;
+  final int groupId;
+  final String? groupName;
 
-  GroupDetailsPage({required this.group_id, this.group_name});
+  const GroupDetailsPage({
+    Key? key,
+    required this.groupId,
+    this.groupName,
+  }) : super(key: key);
 
   @override
-  _GroupDetailsPageState createState() => _GroupDetailsPageState();
+  State<GroupDetailsPage> createState() => _GroupDetailsPageState();
 }
 
 class _GroupDetailsPageState extends State<GroupDetailsPage> {
@@ -22,35 +27,43 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   @override
   void initState() {
     super.initState();
-    _loadamount();
+    _loadTotalAmount();
   }
 
-  Future<void> _loadamount() async {
+  // ===============================
+  // LOAD TOTAL EXPENSE AMOUNT
+  // ===============================
+  Future<void> _loadTotalAmount() async {
+    final expenses = await GroupExpenseDB.instance
+        .getExpensesByGroupId(widget.groupId);
 
+    setState(() {
+      totalAmount = expenses.fold(
+        0.0,
+        (sum, expense) => sum + expense['amount'],
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: widget.group_name != null
+        title: widget.groupName != null
             ? Text(
-          widget.group_name!,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        )
+                widget.groupName!,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              )
             : const Text("Group Details"),
         centerTitle: true,
         backgroundColor: Colors.teal,
         leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back,
-            color: Colors.white,
-          ),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () {
-            Navigator.pop(context,true);
+            Navigator.pop(context, true);
           },
         ),
         actions: [
@@ -58,17 +71,37 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
             icon: const Icon(Icons.edit, color: Colors.white),
             onPressed: () async {
               if (totalAmount > 0.0) {
-                showCustomAlert(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        "Cannot edit group after expenses added"),
+                  ),
+                );
               } else {
-
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        GroupFormScreen(groupId: widget.groupId),
+                  ),
+                );
+                _loadTotalAmount();
               }
             },
           ),
         ],
       ),
+
+      // ===============================
+      // BODY
+      // ===============================
       body: _pages[_selectedIndex],
+
+      // ===============================
+      // BOTTOM NAVIGATION
+      // ===============================
       bottomNavigationBar: BottomNavigationBar(
-        items: const <BottomNavigationBarItem>[
+        items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.money),
             label: 'Expense',
@@ -81,24 +114,20 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         currentIndex: _selectedIndex,
         selectedItemColor: Colors.teal,
         unselectedItemColor: Colors.grey,
-        backgroundColor: Colors.white,
         onTap: (index) {
           setState(() {
             _selectedIndex = index;
           });
         },
       ),
-      bottomSheet: BottomSheet(onClosing: () {
-
-      }, builder: (context) {
-        return Text("hello");
-      },),
     );
   }
 
+  // ===============================
+  // PAGES
+  // ===============================
   List<Widget> get _pages => [
-    ExpensesPage(),
-    BalancePage(),
-  ];
+        GroupExpensePage(groupId: widget.groupId),
+        GroupBalancePage(groupId: widget.groupId),
+      ];
 }
-

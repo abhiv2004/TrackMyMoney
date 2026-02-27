@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../database/personaldatabase.dart';
+import '../models/expense_model.dart';
 
 class ExpenseFormDialog extends StatefulWidget {
-  final Map<String, dynamic>? expense;
+  final Expense? expense;
   final VoidCallback? onSaved;
 
   const ExpenseFormDialog({super.key, this.expense, this.onSaved});
@@ -34,18 +34,18 @@ class _ExpenseFormDialogState extends State<ExpenseFormDialog> {
   @override
   void initState() {
     super.initState();
-    nameCtrl = TextEditingController(text: widget.expense?['name'] ?? '');
+    nameCtrl = TextEditingController(text: widget.expense?.name ?? '');
     remarksCtrl =
-        TextEditingController(text: widget.expense?['remarks'] ?? '');
+        TextEditingController(text: widget.expense?.remarks ?? '');
     amountCtrl =
-        TextEditingController(text: widget.expense?['amount']?.toString() ?? '');
+        TextEditingController(text: widget.expense?.amount.toString() ?? '');
 
-    selectedCategory = widget.expense?['category'] ?? 'Other';
+    selectedCategory = widget.expense?.category ?? 'Other';
 
     dateCtrl = TextEditingController(
       text: widget.expense != null
           ? DateFormat('dd-MM-yyyy')
-          .format(DateTime.parse(widget.expense!['date']))
+          .format(DateTime.parse(widget.expense!.date))
           : DateFormat('dd-MM-yyyy').format(DateTime.now()),
     );
   }
@@ -159,23 +159,19 @@ class _ExpenseFormDialogState extends State<ExpenseFormDialog> {
     final parts = dateCtrl.text.split('-');
     final dbDate = '${parts[2]}-${parts[1]}-${parts[0]}';
 
+    final newExpense = Expense(
+      id: widget.expense?.id,
+      name: nameCtrl.text,
+      amount: double.parse(amountCtrl.text),
+      category: selectedCategory,
+      remarks: remarksCtrl.text,
+      date: dbDate,
+    );
+
     if (widget.expense == null) {
-      await MyPersonalExpenseDB.instance.addExpense(
-        nameCtrl.text,
-        double.parse(amountCtrl.text),
-        category: selectedCategory,
-        remarks: remarksCtrl.text,
-        date: dbDate,
-      );
+      await MyPersonalExpenseDB.instance.addExpense(newExpense);
     } else {
-      await MyPersonalExpenseDB.instance.updateExpense(
-        widget.expense!['id'],
-        nameCtrl.text,
-        double.parse(amountCtrl.text),
-        category: selectedCategory,
-        remarks: remarksCtrl.text,
-        date: dbDate,
-      );
+      await MyPersonalExpenseDB.instance.updateExpense(newExpense);
     }
 
     widget.onSaved?.call();

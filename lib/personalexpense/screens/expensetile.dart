@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../models/expense_model.dart';
+
 class ExpenseTile extends StatelessWidget {
-  final Map<String, dynamic> expense;
+  final Expense expense;
   final VoidCallback onEdit;
   final Future<bool> Function() onDeleteConfirm;
 
@@ -44,18 +46,18 @@ class ExpenseTile extends StatelessWidget {
         child: ListTile(
           leading: CircleAvatar(
             child: Icon(
-                categoryIcons[expense['category']] ?? Icons.category),
+                categoryIcons[expense.category] ?? Icons.category),
           ),
           title: Text(
-            expense['name'],
+            expense.name,
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           subtitle: Text(
-            "${expense['category']} • "
-                "${DateFormat('dd MMM yyyy').format(DateTime.parse(expense['date']))}",
+            "${expense.category} • "
+                "${DateFormat('dd MMM yyyy').format(DateTime.parse(expense.date))}",
           ),
           trailing: Text(
-            "₹${expense['amount']}",
+            "₹${expense.amount}",
             style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.redAccent),

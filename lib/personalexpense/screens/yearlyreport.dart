@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import '../database/personaldatabase.dart';
 import 'expense_form_dialog.dart';
 
+import '../models/expense_model.dart';
+
 class YearlyExpenseListPage extends StatefulWidget {
   final int year;
   const YearlyExpenseListPage({super.key, required this.year});
@@ -15,7 +17,7 @@ class YearlyExpenseListPage extends StatefulWidget {
 
 class _YearlyExpenseListPageState
     extends State<YearlyExpenseListPage> {
-  Map<int, List<Map<String, dynamic>>> expensesByMonth = {};
+  Map<int, List<Expense>> expensesByMonth = {};
   bool isLoading = true;
   int? expandedMonth;
 
@@ -29,10 +31,10 @@ class _YearlyExpenseListPageState
     final allExpenses =
     await MyPersonalExpenseDB.instance.getExpenses();
 
-    Map<int, List<Map<String, dynamic>>> grouped = {};
+    Map<int, List<Expense>> grouped = {};
 
     for (var expense in allExpenses) {
-      final date = DateTime.parse(expense['date']);
+      final date = DateTime.parse(expense.date);
       if (date.year != widget.year) continue;
 
       grouped.putIfAbsent(date.month, () => []);
@@ -118,7 +120,7 @@ class _YearlyExpenseListPageState
                         monthExpenses.fold<double>(
                           0,
                               (sum, e) =>
-                          sum + (e['amount'] as double),
+                          sum + e.amount,
                         );
 
                         final isExpanded =
@@ -231,7 +233,7 @@ class _YearlyExpenseListPageState
                                               final confirm = await _confirmDelete(context);
 
                                               if (confirm) {
-                                              await MyPersonalExpenseDB.instance.deleteExpense(expense['id']);
+                                              await MyPersonalExpenseDB.instance.deleteExpense(expense.id!);
                                               await loadExpenses();
                                               return true;   // allow dismiss
                                               }

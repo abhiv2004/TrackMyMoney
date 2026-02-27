@@ -6,6 +6,9 @@ class GroupExpenseDB {
   static final GroupExpenseDB instance = GroupExpenseDB._init();
   static Database? _db;
 
+  // =========================
+  // DATABASE INSTANCE
+  // =========================
   Future<Database> get database async {
     if (_db != null) return _db!;
     _db = await _initDB("group_expense.db");
@@ -20,11 +23,18 @@ class GroupExpenseDB {
       path,
       version: 1,
       onCreate: _createDB,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
     );
   }
 
+  // =========================
+  // CREATE TABLES
+  // =========================
   Future _createDB(Database db, int version) async {
-    // groups table
+
+    // Groups Table
     await db.execute('''
       CREATE TABLE groups (
         group_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,7 +43,7 @@ class GroupExpenseDB {
       )
     ''');
 
-    // participants table
+    // Participants Table
     await db.execute('''
       CREATE TABLE participants (
         participant_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +55,7 @@ class GroupExpenseDB {
       )
     ''');
 
-    // expenses table
+    // Expenses Table
     await db.execute('''
       CREATE TABLE expenses (
         expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,7 +71,7 @@ class GroupExpenseDB {
       )
     ''');
 
-    // expense_splits table
+    // Expense Splits Table
     await db.execute('''
       CREATE TABLE expense_splits (
         split_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,85 +86,307 @@ class GroupExpenseDB {
     ''');
   }
 
-  // ----------------------------------------------------------
-  // GROUP FUNCTIONS
-  // ----------------------------------------------------------
-  Future<int> addGroup(String name, String dateIso) async {
+  // =====================================================
+  // 1️⃣ ADD GROUP WITH PARTICIPANTS (Transaction Safe)
+  // =====================================================
+  Future<int> addGroupWithParticipants({
+    required String groupName,
+    required String dateIso,
+    required List<Map<String, dynamic>> participants,
+  }) async {
     final db = await database;
-    return await db.insert('groups', {'group_name': name, 'date': dateIso});
+
+    return await db.transaction((txn) async {
+      int groupId = await txn.insert('groups', {
+        'group_name': groupName,
+        'date': dateIso,
+      });
+
+      for (var p in participants) {
+        await txn.insert('participants', {
+          'group_id': groupId,
+          'participant_name': p['name'],
+          'image': p['image'],
+          'mobile': p['mobile'],
+        });
+      }
+
+      return groupId;
+    });
   }
 
-  Future<int> updateGroup(int groupId, String newName) async {
-    final db = await database;
-    return await db.update(
-      'groups',
-      {'group_name': newName},
-      where: 'group_id = ?',
-      whereArgs: [groupId],
-    );
-  }
-
-  Future<int> deleteGroup(int groupId) async {
-    final db = await database;
-    return await db.delete('groups', where: 'group_id = ?', whereArgs: [groupId]);
-  }
-
+  // =====================================================
+  // 2️⃣ GET ALL GROUPS
+  // =====================================================
   Future<List<Map<String, dynamic>>> getAllGroups() async {
     final db = await database;
     return await db.query('groups', orderBy: 'group_id DESC');
   }
 
-  Future<Map<String, dynamic>?> getGroupById(int groupId) async {
+  // =====================================================
+  // 3️⃣ GET GROUP WITH PARTICIPANTS
+  // =====================================================
+  Future<Map<String, dynamic>> getGroupWithParticipants(int groupId) async {
     final db = await database;
-    final rows = await db.query('groups', where: 'group_id = ?', whereArgs: [groupId]);
-    if (rows.isEmpty) return null;
-    return rows.first;
-  }
-  // ----------------------------------------------------------
-  // PARTICIPANT FUNCTIONS
-  // ----------------------------------------------------------
 
-  Future<int> addParticipant({
+    final group = await db.query(
+      'groups',
+      where: 'group_id = ?',
+      whereArgs: [groupId],
+    );
+
+    final participants = await db.query(
+      'participants',
+      where: 'group_id = ?',
+      whereArgs: [groupId],
+    );
+
+    return {
+      'group': group.first,
+      'participants': participants,
+    };
+  }
+
+  // =====================================================
+  // 4️⃣ UPDATE GROUP WITH PARTICIPANTS
+  // =====================================================
+  Future<void> updateGroupWithParticipants({
     required int groupId,
-    required String name,
-    String? imagePath,
-    String? mobile,
+    required String groupName,
+    required List<Map<String, dynamic>> participants,
   }) async {
     final db = await database;
-    return await db.insert('participants', {
-      'group_id': groupId,
-      'participant_name': name,
-      'image': imagePath,
-      'mobile': mobile,
+
+    await db.transaction((txn) async {
+
+      // Update Group Name
+      await txn.update(
+        'groups',
+        {'group_name': groupName},
+        where: 'group_id = ?',
+        whereArgs: [groupId],
+      );
+
+      // Get Existing Participants
+      final existingParticipants = await txn.query(
+        'participants',
+        where: 'group_id = ?',
+        whereArgs: [groupId],
+      );
+
+      List<int> existingIds =
+          existingParticipants.map((e) => e['participant_id'] as int).toList();
+
+      List<int> updatedIds = [];
+
+      // Insert or Update
+      for (var p in participants) {
+        if (p['participant_id'] != null) {
+          await txn.update(
+            'participants',
+            {
+              'participant_name': p['name'],
+              'image': p['image'],
+              'mobile': p['mobile'],
+            },
+            where: 'participant_id = ?',
+            whereArgs: [p['participant_id']],
+          );
+          updatedIds.add(p['participant_id']);
+        } else {
+          await txn.insert('participants', {
+            'group_id': groupId,
+            'participant_name': p['name'],
+            'image': p['image'],
+            'mobile': p['mobile'],
+          });
+        }
+      }
+
+      // Delete Removed Participants
+      for (int id in existingIds) {
+        if (!updatedIds.contains(id)) {
+          await txn.delete(
+            'participants',
+            where: 'participant_id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
     });
   }
 
-  Future<int> updateParticipant({
-    required int participantId,
-    required String name,
-    String? imagePath,
-    required String mobile,
-  }) async {
+  // =====================================================
+  // 5️⃣ DELETE GROUP WITH EVERYTHING (Cascade)
+  // =====================================================
+  Future<void> deleteGroupWithEverything(int groupId) async {
     final db = await database;
-    return await db.update(
-      'participants',
-      {
-        'participant_name': name,
-        'image': imagePath,
-        'mobile': mobile,
-      },
-      where: 'participant_id = ?',
-      whereArgs: [participantId],
+
+    await db.delete(
+      'groups',
+      where: 'group_id = ?',
+      whereArgs: [groupId],
     );
   }
 
-  Future<int> deleteParticipant(int participantId) async {
+  // =====================================================
+  // 6️⃣ FETCH EXPENSES BY GROUP ID
+  // =====================================================
+  Future<List<Map<String, dynamic>>> fetchExpensesByGroupId(int groupId) async {
     final db = await database;
-    return await db.delete('participants', where: 'participant_id = ?', whereArgs: [participantId]);
+
+    return await db.query(
+      'expenses',
+      where: 'group_id = ?',
+      whereArgs: [groupId],
+      orderBy: 'expense_date DESC',
+    );
   }
 
-  Future<List<Map<String, dynamic>>> getParticipantsByGroup(int groupId) async {
+  // =====================================================
+  // 7️⃣ FETCH PARTICIPANTS BY GROUP ID
+  // =====================================================
+  Future<List<Map<String, dynamic>>> fetchParticipantsByGroupId(
+      int groupId) async {
     final db = await database;
-    return await db.query('participants', where: 'group_id = ?', whereArgs: [groupId]);
+
+    return await db.query(
+      'participants',
+      where: 'group_id = ?',
+      whereArgs: [groupId],
+    );
+  }
+
+  // =====================================================
+  // 8️⃣ FETCH DROPDOWN PARTICIPANTS
+  // =====================================================
+  Future<List<Map<String, dynamic>>>
+      fetchDropdownParticipantsByGroupId(int groupId) async {
+    final db = await database;
+
+    return await db.query(
+      'participants',
+      columns: ['participant_id', 'participant_name'],
+      where: 'group_id = ?',
+      whereArgs: [groupId],
+    );
+  }
+
+  // =====================================================
+  // 9️⃣ FETCH EXPENSE SPLITS BY EXPENSE ID
+  // =====================================================
+  Future<List<Map<String, dynamic>>>
+      fetchExpenseSplitsByExpenseId(int expenseId) async {
+    final db = await database;
+
+    return await db.query(
+      'expense_splits',
+      where: 'expense_id = ?',
+      whereArgs: [expenseId],
+    );
+  }
+
+  // =====================================================
+  // 🔟 INSERT EXPENSE
+  // =====================================================
+  Future<int> insertExpense({
+    required int groupId,
+    required String expenseName,
+    required double amount,
+    required int paidBy,
+    required String splitType,
+    String? description,
+    required String expenseDate,
+  }) async {
+    final db = await database;
+
+    return await db.insert('expenses', {
+      'group_id': groupId,
+      'expense_name': expenseName,
+      'amount': amount,
+      'paid_by': paidBy,
+      'split_type': splitType,
+      'description': description,
+      'expense_date': expenseDate,
+    });
+  }
+
+  // =====================================================
+  // 1️⃣1️⃣ INSERT EXPENSE SPLIT
+  // =====================================================
+  Future<int> insertExpenseSplit({
+    required int expenseId,
+    required int participantId,
+    required double amount,
+    required int groupId,
+  }) async {
+    final db = await database;
+
+    return await db.insert('expense_splits', {
+      'expense_id': expenseId,
+      'participant_id': participantId,
+      'amount': amount,
+      'group_id': groupId,
+    });
+  }
+
+  // =====================================================
+  // 1️⃣2️⃣ UPDATE EXPENSE
+  // =====================================================
+  Future<int> updateExpense({
+    required int expenseId,
+    required String expenseName,
+    required double amount,
+    required int paidBy,
+    required String splitType,
+    String? description,
+    required String expenseDate,
+  }) async {
+    final db = await database;
+
+    return await db.update(
+      'expenses',
+      {
+        'expense_name': expenseName,
+        'amount': amount,
+        'paid_by': paidBy,
+        'split_type': splitType,
+        'description': description,
+        'expense_date': expenseDate,
+      },
+      where: 'expense_id = ?',
+      whereArgs: [expenseId],
+    );
+  }
+
+  // =====================================================
+  // 1️⃣3️⃣ DELETE EXPENSE (Splits auto delete)
+  // =====================================================
+  Future<void> deleteExpense(int expenseId) async {
+    final db = await database;
+
+    await db.delete(
+      'expenses',
+      where: 'expense_id = ?',
+      whereArgs: [expenseId],
+    );
+  }
+
+  // =====================================================
+  // 1️⃣4️⃣ UPDATE EXPENSE SPLIT
+  // =====================================================
+  Future<int> updateExpenseSplitByExpenseAndParticipant({
+    required int expenseId,
+    required int participantId,
+    required double amount,
+  }) async {
+    final db = await database;
+
+    return await db.update(
+      'expense_splits',
+      {'amount': amount},
+      where: 'expense_id = ? AND participant_id = ?',
+      whereArgs: [expenseId, participantId],
+    );
   }
 }

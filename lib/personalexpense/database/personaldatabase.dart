@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import '../models/expense_model.dart';
 
 class MyPersonalExpenseDB {
   static final MyPersonalExpenseDB instance = MyPersonalExpenseDB._init();
@@ -41,61 +42,51 @@ class MyPersonalExpenseDB {
   }
 
   // ---------------- CREATE ----------------
-  Future<int> addExpense(
-      String name,
-      double amount, {
-        required String category,
-        String? remarks,
-        required String date,
-      }) async {
+  Future<int> addExpense(Expense expense) async {
     final db = await instance.database;
-
-    return await db.insert('expenses', {
-      'name': name,
-      'amount': amount,
-      'category': category,
-      'remarks': remarks ?? '',
-      'date': date,
-    });
+    return await db.insert('expenses', expense.toMap());
   }
 
   // ---------------- READ ALL ----------------
-  Future<List<Map<String, dynamic>>> getExpenses() async {
+  Future<List<Expense>> getExpenses() async {
     final db = await instance.database;
-    return await db.query(
+    final result = await db.query(
       'expenses',
       orderBy: 'date DESC',
     );
+    return result.map((json) => Expense.fromMap(json)).toList();
   }
 
   // ---------------- READ BY CATEGORY ----------------
-  Future<List<Map<String, dynamic>>> getExpensesByCategory(String category) async {
+  Future<List<Expense>> getExpensesByCategory(String category) async {
     final db = await instance.database;
-    return await db.query(
+    final result = await db.query(
       'expenses',
       where: 'category = ?',
       whereArgs: [category],
       orderBy: 'date DESC',
     );
+    return result.map((json) => Expense.fromMap(json)).toList();
   }
 
   // ---------------- READ BY YEAR ----------------
-  Future<List<Map<String, dynamic>>> getExpensesByYear(int year) async {
+  Future<List<Expense>> getExpensesByYear(int year) async {
     final db = await instance.database;
 
     String startDate = '$year-01-01';
     String endDate = '$year-12-31';
 
-    return await db.query(
+    final result = await db.query(
       'expenses',
       where: 'date BETWEEN ? AND ?',
       whereArgs: [startDate, endDate],
       orderBy: 'date ASC',
     );
+    return result.map((json) => Expense.fromMap(json)).toList();
   }
 
   // ---------------- CURRENT MONTH ----------------
-  Future<List<Map<String, dynamic>>> getExpensesByRunningMonth() async {
+  Future<List<Expense>> getExpensesByRunningMonth() async {
     final db = await instance.database;
 
     DateTime now = DateTime.now();
@@ -103,12 +94,13 @@ class MyPersonalExpenseDB {
     String lastDay = DateFormat('yyyy-MM-dd')
         .format(DateTime(now.year, now.month + 1, 0));
 
-    return await db.query(
+    final result = await db.query(
       'expenses',
       where: 'date BETWEEN ? AND ?',
       whereArgs: [firstDay, lastDay],
       orderBy: 'date DESC',
     );
+    return result.map((json) => Expense.fromMap(json)).toList();
   }
 
   // ---------------- YEARLY SUMMARY (MONTH WISE) ----------------
@@ -133,27 +125,14 @@ class MyPersonalExpenseDB {
   }
 
   // ---------------- UPDATE ----------------
-  Future<int> updateExpense(
-      int id,
-      String name,
-      double amount, {
-        required String category,
-        String? remarks,
-        required String date,
-      }) async {
+  Future<int> updateExpense(Expense expense) async {
     final db = await instance.database;
 
     return await db.update(
       'expenses',
-      {
-        'name': name,
-        'amount': amount,
-        'category': category,
-        'remarks': remarks ?? '',
-        'date': date,
-      },
+      expense.toMap(),
       where: 'id = ?',
-      whereArgs: [id],
+      whereArgs: [expense.id],
     );
   }
 
@@ -166,4 +145,5 @@ class MyPersonalExpenseDB {
       whereArgs: [id],
     );
   }
+}
 }
